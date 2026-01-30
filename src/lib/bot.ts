@@ -1,15 +1,22 @@
+/**
+ * Bot de Telegram para Camaral
+ * Implementado con grammy y RAG para respuestas contextuales
+ */
+
 import { Bot, InlineKeyboard, webhookCallback } from "grammy";
 import { generateResponse } from "./ai";
 import { transcribeTelegramVoice } from "./audio";
+import { BOT_CONFIG, EXTERNAL_LINKS } from "./config";
+import type { ConversationHistory } from "./types";
 
-const CALENDLY_URL = "https://calendly.com/emmsarias13/30min";
+// Almacenamiento de historial por usuario (en producción usar Redis)
+const conversationHistory = new Map<number, ConversationHistory>();
 
-// Store conversation history per user (in production, use Redis or similar)
-const conversationHistory = new Map<number, { role: "user" | "assistant"; content: string }[]>();
+// ============================================================================
+// Gestión del historial de conversación
+// ============================================================================
 
-const MAX_HISTORY_LENGTH = 10;
-
-function getHistory(userId: number): { role: "user" | "assistant"; content: string }[] {
+function getHistory(userId: number): ConversationHistory {
   return conversationHistory.get(userId) || [];
 }
 
@@ -17,8 +24,8 @@ function addToHistory(userId: number, role: "user" | "assistant", content: strin
   const history = getHistory(userId);
   history.push({ role, content });
 
-  if (history.length > MAX_HISTORY_LENGTH) {
-    history.splice(0, history.length - MAX_HISTORY_LENGTH);
+  if (history.length > BOT_CONFIG.MAX_HISTORY_LENGTH) {
+    history.splice(0, history.length - BOT_CONFIG.MAX_HISTORY_LENGTH);
   }
 
   conversationHistory.set(userId, history);
@@ -28,31 +35,46 @@ function clearHistory(userId: number): void {
   conversationHistory.delete(userId);
 }
 
-// Reusable keyboard with demo CTA
-const demoCtaKeyboard = new InlineKeyboard()
-  .url("🗓️ Agendar una demo", CALENDLY_URL)
-  .row()
-  .text("⬅️ Menú principal", "main_menu");
+// ============================================================================
+// Teclados inline reutilizables
+// ============================================================================
 
-const mainMenuWithDemo = new InlineKeyboard()
-  .text("🤖 ¿Qué es Camaral?", "what_is_camaral")
-  .text("⚙️ ¿Cómo funciona?", "how_it_works")
-  .row()
-  .text("💼 Casos de uso", "use_cases")
-  .text("💰 Precios", "pricing")
-  .row()
-  .url("🗓️ Agendar demo", CALENDLY_URL)
-  .text("🚀 Probar gratis", "try_free");
+const createDemoCtaKeyboard = () =>
+  new InlineKeyboard()
+    .url("🗓️ Agendar una demo", EXTERNAL_LINKS.CALENDLY)
+    .row()
+    .text("⬅️ Menú principal", "main_menu");
 
-export function createBot(token: string): Bot {
-  const bot = new Bot(token);
+const createMainMenuKeyboard = () =>
+  new InlineKeyboard()
+    .text("🤖 ¿Qué es Camaral?", "what_is_camaral")
+    .text("⚙️ ¿Cómo funciona?", "how_it_works")
+    .row()
+    .text("💼 Casos de uso", "use_cases")
+    .text("💰 Precios", "pricing")
+    .row()
+    .url("🗓️ Agendar demo", EXTERNAL_LINKS.CALENDLY)
+    .text("🚀 Probar gratis", "try_free");
 
-  // /start command
-  bot.command("start", async (ctx) => {
-    clearHistory(ctx.from?.id || 0);
+const createPricingKeyboard = () =>
+  new InlineKeyboard()
+    .text("Plan Pro - $99/mes", "plan_pro")
+    .row()
+    .text("Plan Scale - $299/mes", "plan_scale")
+    .row()
+    .text("Plan Growth - $799/mes", "plan_growth")
+    .row()
+    .text("🏢 Enterprise", "plan_enterprise")
+    .row()
+    .url("🗓️ Agendar demo", EXTERNAL_LINKS.CALENDLY)
+    .row()
+    .text("⬅️ Menú principal", "main_menu");
 
-    await ctx.reply(
-      `¡Hola${ctx.from?.first_name ? ` ${ctx.from.first_name}` : ""}! 👋
+// ============================================================================
+// Mensajes predefinidos
+// ============================================================================
+
+const WELCOME_MESSAGE = (firstName?: string) => `¡Hola${firstName ? ` ${firstName}` : ""}! 👋
 
 Soy el asistente virtual de *Camaral*, la plataforma de avatares con IA que participan en tus reuniones de ventas y soporte.
 
@@ -62,18 +84,9 @@ Puedo ayudarte a conocer más sobre:
 • Planes y precios
 • Cómo empezar
 
-*¿Qué te gustaría saber?* 👇`,
-      {
-        parse_mode: "Markdown",
-        reply_markup: mainMenuWithDemo,
-      }
-    );
-  });
+*¿Qué te gustaría saber?* 👇`;
 
-  // /help command
-  bot.command("help", async (ctx) => {
-    await ctx.reply(
-      `*Comandos disponibles:*
+const HELP_MESSAGE = `*Comandos disponibles:*
 
 /start - Iniciar conversación
 /help - Ver esta ayuda
@@ -84,15 +97,9 @@ También puedes:
 • Escribirme cualquier pregunta sobre Camaral
 • Enviarme un mensaje de voz 🎤
 
-*¿En qué puedo ayudarte?*`,
-      { parse_mode: "Markdown", reply_markup: mainMenuWithDemo }
-    );
-  });
+*¿En qué puedo ayudarte?*`;
 
-  // /demo command
-  bot.command("demo", async (ctx) => {
-    await ctx.reply(
-      `🗓️ *¡Agenda tu demo personalizada!*
+const DEMO_MESSAGE = `🗓️ *¡Agenda tu demo personalizada!*
 
 En 30 minutos podrás:
 • Ver los avatares de Camaral en acción
@@ -100,98 +107,9 @@ En 30 minutos podrás:
 • Resolver todas tus dudas
 • Conocer el proceso de implementación
 
-👇 *Selecciona un horario que te funcione:*`,
-      {
-        parse_mode: "Markdown",
-        reply_markup: new InlineKeyboard()
-          .url("🗓️ Agendar demo ahora", CALENDLY_URL)
-          .row()
-          .text("⬅️ Menú principal", "main_menu"),
-      }
-    );
-  });
+👇 *Selecciona un horario que te funcione:*`;
 
-  // /precios command
-  bot.command("precios", async (ctx) => {
-    const pricingKeyboard = new InlineKeyboard()
-      .text("Plan Pro - $99/mes", "plan_pro")
-      .row()
-      .text("Plan Scale - $299/mes", "plan_scale")
-      .row()
-      .text("Plan Growth - $799/mes", "plan_growth")
-      .row()
-      .text("🏢 Enterprise", "plan_enterprise")
-      .row()
-      .url("🗓️ Agendar demo", CALENDLY_URL)
-      .row()
-      .text("⬅️ Menú principal", "main_menu");
-
-    await ctx.reply(
-      `💰 *Planes de Camaral*
-
-Todos los planes incluyen:
-✅ Avatares ilimitados
-✅ Transcripciones y resúmenes
-✅ Acceso a la API
-✅ Soporte prioritario
-
-*Pro* - $99/mes
-• 500 minutos incluidos
-• $0.24/min adicional
-
-*Scale* - $299/mes
-• 1,600 minutos incluidos
-• $0.23/min adicional
-• Integraciones personalizadas
-
-*Growth* - $799/mes
-• 3,600 minutos incluidos
-• $0.22/min adicional
-
-*Enterprise* - Personalizado
-• Descuentos por volumen
-• SSO/SAML y soporte dedicado
-
-💡 *¿Quieres saber cuál plan es mejor para ti?* Agenda una demo.`,
-      { parse_mode: "Markdown", reply_markup: pricingKeyboard }
-    );
-  });
-
-  // Callback queries (inline keyboard buttons)
-  bot.on("callback_query:data", async (ctx) => {
-    const data = ctx.callbackQuery.data;
-    const userId = ctx.from?.id || 0;
-
-    await ctx.answerCallbackQuery();
-
-    let question = "";
-    switch (data) {
-      case "what_is_camaral":
-        question = "¿Qué es Camaral y qué hace? Explica brevemente.";
-        break;
-      case "how_it_works":
-        question = "¿Cómo funciona la tecnología de avatares de Camaral? Explica el proceso.";
-        break;
-      case "use_cases":
-        question = "¿Cuáles son los principales casos de uso de Camaral? Dame ejemplos concretos.";
-        break;
-      case "pricing":
-        // Trigger pricing flow
-        const pricingKeyboard = new InlineKeyboard()
-          .text("Plan Pro - $99/mes", "plan_pro")
-          .row()
-          .text("Plan Scale - $299/mes", "plan_scale")
-          .row()
-          .text("Plan Growth - $799/mes", "plan_growth")
-          .row()
-          .text("🏢 Enterprise", "plan_enterprise")
-          .row()
-          .url("🗓️ Agendar demo", CALENDLY_URL)
-          .row()
-          .text("⬅️ Menú principal", "main_menu");
-
-        await ctx.reply(
-          `💰 *Planes de Camaral*
+const PRICING_MESSAGE = `💰 *Planes de Camaral*
 
 *Pro* - $99/mes → 500 min incluidos
 *Scale* - $299/mes → 1,600 min incluidos
@@ -200,14 +118,9 @@ Todos los planes incluyen:
 
 Todos incluyen avatares ilimitados y acceso a API.
 
-👇 *Selecciona un plan para más detalles:*`,
-          { parse_mode: "Markdown", reply_markup: pricingKeyboard }
-        );
-        return;
+👇 *Selecciona un plan para más detalles:*`;
 
-      case "try_free":
-        await ctx.reply(
-          `🚀 *¡Comienza con Camaral!*
+const TRY_FREE_MESSAGE = `🚀 *¡Comienza con Camaral!*
 
 La mejor forma de empezar es agendando una demo con nuestro equipo:
 
@@ -216,32 +129,95 @@ La mejor forma de empezar es agendando una demo con nuestro equipo:
 ✅ Resolvemos todas tus dudas
 ✅ Sin compromiso
 
-👇 *Agenda tu demo gratuita:*`,
-          { parse_mode: "Markdown", reply_markup: demoCtaKeyboard }
-        );
+👇 *Agenda tu demo gratuita:*`;
+
+// ============================================================================
+// Mapeo de callback queries a preguntas
+// ============================================================================
+
+const CALLBACK_QUESTIONS: Record<string, string> = {
+  what_is_camaral: "¿Qué es Camaral y qué hace? Explica brevemente.",
+  how_it_works: "¿Cómo funciona la tecnología de avatares de Camaral?",
+  use_cases: "¿Cuáles son los principales casos de uso de Camaral?",
+  plan_pro: "Dame todos los detalles del plan Pro de $99/mes de Camaral",
+  plan_scale: "Dame todos los detalles del plan Scale de $299/mes de Camaral",
+  plan_growth: "Dame todos los detalles del plan Growth de $799/mes de Camaral",
+  plan_enterprise: "¿Qué incluye el plan Enterprise de Camaral?",
+};
+
+// ============================================================================
+// Creación del bot
+// ============================================================================
+
+export function createBot(token: string): Bot {
+  const bot = new Bot(token);
+
+  // --- Comandos ---
+
+  bot.command("start", async (ctx) => {
+    clearHistory(ctx.from?.id || 0);
+    await ctx.reply(WELCOME_MESSAGE(ctx.from?.first_name), {
+      parse_mode: "Markdown",
+      reply_markup: createMainMenuKeyboard(),
+    });
+  });
+
+  bot.command("help", async (ctx) => {
+    await ctx.reply(HELP_MESSAGE, {
+      parse_mode: "Markdown",
+      reply_markup: createMainMenuKeyboard(),
+    });
+  });
+
+  bot.command("demo", async (ctx) => {
+    await ctx.reply(DEMO_MESSAGE, {
+      parse_mode: "Markdown",
+      reply_markup: createDemoCtaKeyboard(),
+    });
+  });
+
+  bot.command("precios", async (ctx) => {
+    await ctx.reply(PRICING_MESSAGE, {
+      parse_mode: "Markdown",
+      reply_markup: createPricingKeyboard(),
+    });
+  });
+
+  // --- Callback queries ---
+
+  bot.on("callback_query:data", async (ctx) => {
+    const data = ctx.callbackQuery.data;
+    const userId = ctx.from?.id || 0;
+
+    await ctx.answerCallbackQuery();
+
+    // Manejo de acciones especiales
+    switch (data) {
+      case "pricing":
+        await ctx.reply(PRICING_MESSAGE, {
+          parse_mode: "Markdown",
+          reply_markup: createPricingKeyboard(),
+        });
+        return;
+
+      case "try_free":
+        await ctx.reply(TRY_FREE_MESSAGE, {
+          parse_mode: "Markdown",
+          reply_markup: createDemoCtaKeyboard(),
+        });
         return;
 
       case "main_menu":
-        await ctx.reply("¿En qué más puedo ayudarte? 👇", { reply_markup: mainMenuWithDemo });
-        return;
-
-      case "plan_pro":
-        question = "Dame todos los detalles del plan Pro de $99/mes de Camaral";
-        break;
-      case "plan_scale":
-        question = "Dame todos los detalles del plan Scale de $299/mes de Camaral";
-        break;
-      case "plan_growth":
-        question = "Dame todos los detalles del plan Growth de $799/mes de Camaral";
-        break;
-      case "plan_enterprise":
-        question = "¿Qué incluye el plan Enterprise de Camaral y para quién es?";
-        break;
-      default:
+        await ctx.reply("¿En qué más puedo ayudarte? 👇", {
+          reply_markup: createMainMenuKeyboard(),
+        });
         return;
     }
 
-    // Process the question through RAG
+    // Procesar preguntas predefinidas
+    const question = CALLBACK_QUESTIONS[data];
+    if (!question) return;
+
     await ctx.replyWithChatAction("typing");
 
     try {
@@ -251,20 +227,20 @@ La mejor forma de empezar es agendando una demo con nuestro equipo:
       addToHistory(userId, "user", question);
       addToHistory(userId, "assistant", response);
 
-      await ctx.reply(response, { reply_markup: demoCtaKeyboard });
+      await ctx.reply(response, { reply_markup: createDemoCtaKeyboard() });
     } catch (error) {
       console.error("Error generating response:", error);
       await ctx.reply(
-        "Lo siento, hubo un error procesando tu pregunta. Por favor intenta de nuevo.",
-        { reply_markup: mainMenuWithDemo }
+        "Lo siento, hubo un error. Por favor intenta de nuevo.",
+        { reply_markup: createMainMenuKeyboard() }
       );
     }
   });
 
-  // Handle voice messages
+  // --- Mensajes de voz ---
+
   bot.on("message:voice", async (ctx) => {
     const userId = ctx.from?.id || 0;
-
     await ctx.replyWithChatAction("typing");
 
     try {
@@ -287,17 +263,18 @@ La mejor forma de empezar es agendando una demo con nuestro equipo:
       addToHistory(userId, "user", transcription);
       addToHistory(userId, "assistant", response);
 
-      await ctx.reply(response, { reply_markup: demoCtaKeyboard });
+      await ctx.reply(response, { reply_markup: createDemoCtaKeyboard() });
     } catch (error) {
-      console.error("Error processing voice message:", error);
+      console.error("Error processing voice:", error);
       await ctx.reply(
-        "Lo siento, hubo un error procesando tu mensaje de voz. ¿Podrías escribir tu pregunta?",
-        { reply_markup: mainMenuWithDemo }
+        "Lo siento, hubo un error con el mensaje de voz. ¿Podrías escribir tu pregunta?",
+        { reply_markup: createMainMenuKeyboard() }
       );
     }
   });
 
-  // Handle text messages
+  // --- Mensajes de texto ---
+
   bot.on("message:text", async (ctx) => {
     const userId = ctx.from?.id || 0;
     const userMessage = ctx.message.text;
@@ -313,15 +290,17 @@ La mejor forma de empezar es agendando una demo con nuestro equipo:
       addToHistory(userId, "user", userMessage);
       addToHistory(userId, "assistant", response);
 
-      await ctx.reply(response, { reply_markup: demoCtaKeyboard });
+      await ctx.reply(response, { reply_markup: createDemoCtaKeyboard() });
     } catch (error) {
       console.error("Error generating response:", error);
       await ctx.reply(
-        "Lo siento, hubo un error procesando tu pregunta. Por favor intenta de nuevo.",
-        { reply_markup: mainMenuWithDemo }
+        "Lo siento, hubo un error. Por favor intenta de nuevo.",
+        { reply_markup: createMainMenuKeyboard() }
       );
     }
   });
+
+  // --- Error handler ---
 
   bot.catch((err) => {
     console.error("Bot error:", err);
@@ -330,6 +309,9 @@ La mejor forma de empezar es agendando una demo con nuestro equipo:
   return bot;
 }
 
+/**
+ * Crea el handler de webhook para el bot
+ */
 export function createWebhookHandler(bot: Bot) {
   return webhookCallback(bot, "std/http");
 }

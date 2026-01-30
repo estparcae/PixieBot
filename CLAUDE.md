@@ -1,34 +1,36 @@
-# Camaral Makers
+# PixieBot - Bot de Telegram para Camaral
 
-## Skills Disponibles
+## Proyecto
 
-Este proyecto tiene acceso a los siguientes skills de Claude Code:
+Bot de Telegram con RAG para responder preguntas sobre Camaral (avatares IA para reuniones).
 
-### Desarrollo de Plugins
-- `/agent-development` - Guía para crear agentes de Claude Code
-- `/command-development` - Guía para crear slash commands
-- `/hook-development` - Guía para crear hooks
-- `/mcp-integration` - Integración con servidores MCP
-- `/plugin-settings` - Configuración de plugins
-- `/plugin-structure` - Estructura y arquitectura de plugins
-- `/skill-development` - Guía para crear skills
+## Comandos
 
-### Configuración y Mejoras
-- `/claude-automation-recommender` - Analiza el codebase y recomienda automaciones
-- `/claude-md-improver` - Audita y mejora archivos CLAUDE.md
+```bash
+npm run dev          # Desarrollo
+npm run build        # Build
+npm run index        # Indexar documentos
+npm run webhook:set  # Configurar webhook
+```
 
-### Frontend y Diseño (Instalados en este proyecto)
-- `/frontend-design` - Crea interfaces frontend distintivas y de alta calidad (Anthropic)
-- `/vercel-react-best-practices` - Mejores prácticas para React con Vercel
-- `/web-design-guidelines` - Guías de diseño web profesional
+## Estructura Clave
 
-### Herramientas Interactivas
-- `/playground` - Crea playgrounds HTML interactivos
+- `src/lib/config.ts` - Configuración centralizada
+- `src/lib/types.ts` - Tipos TypeScript
+- `src/lib/bot.ts` - Lógica del bot
+- `src/lib/ai.ts` - GPT-4o + guardrails
+- `src/lib/rag/` - Sistema RAG
+- `investigacion.md` - Base de conocimiento
 
-### Integraciones
-- `/stripe-best-practices` - Mejores prácticas para integrar Stripe
-- `/telegram-bot-builder` - Construye bots de Telegram
-- `/writing-rules` - Sintaxis y patrones para reglas de hookify
+## URLs
 
-### Ejemplos
-- `/example-skill` - Plantilla de referencia para crear skills
+- Bot: https://t.me/camaral_info_bot
+- Frontend: https://pixie-bot-phi.vercel.app
+- Demo: https://calendly.com/emmsarias13/30min
+
+## Notas
+
+- El bot SOLO responde sobre Camaral
+- Siempre incluir CTA de agendar demo
+- Usar configuración de `config.ts`
+- Ver `AGENTS.md` para contexto completo

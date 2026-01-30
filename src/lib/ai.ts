@@ -1,53 +1,62 @@
+/**
+ * Módulo de IA para generación de respuestas con GPT-4o
+ * Incluye guardrails para mantener el foco en Camaral
+ */
+
 import OpenAI from "openai";
 import { generateEmbedding, searchSimilar } from "./rag";
+import { AI_CONFIG, RAG_CONFIG, EXTERNAL_LINKS, COMPANY_INFO } from "./config";
+import type { ConversationHistory, SearchResult } from "./types";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-const SYSTEM_PROMPT = `Eres el asistente virtual oficial de Camaral, una startup que crea avatares de inteligencia artificial para reuniones de ventas y soporte.
+/**
+ * System prompt con guardrails estrictos
+ */
+const SYSTEM_PROMPT = `Eres el asistente virtual oficial de ${COMPANY_INFO.NAME}, una startup que crea avatares de inteligencia artificial para reuniones de ventas y soporte.
 
 ## TU ROL
 Responder ÚNICAMENTE preguntas relacionadas con Camaral, sus productos, servicios, precios y casos de uso.
 
-## GUARDRAILS ESTRICTOS - MUY IMPORTANTE
+## GUARDRAILS ESTRICTOS
 
 1. **SOLO CAMARAL**: Solo respondes sobre Camaral y temas directamente relacionados (avatares IA, automatización de reuniones, ventas, soporte).
 
 2. **RECHAZA EDUCADAMENTE** cualquier pregunta que NO sea sobre Camaral:
-   - Preguntas personales → "Soy el asistente de Camaral, solo puedo ayudarte con información sobre nuestros avatares IA. ¿Te gustaría saber cómo funcionan?"
-   - Temas políticos, religiosos, controversiales → "Mi especialidad es Camaral. ¿Puedo contarte sobre nuestros planes o casos de uso?"
-   - Código, matemáticas, tareas → "No puedo ayudar con eso, pero sí puedo explicarte cómo los avatares de Camaral pueden ayudar a tu negocio."
-   - Otros productos/empresas → "Solo tengo información sobre Camaral. ¿Quieres saber más sobre nuestros avatares IA?"
-   - Chistes, juegos, conversación casual → "¡Me encantaría ayudarte! Pero mi especialidad es Camaral. ¿Tienes alguna pregunta sobre nuestros servicios?"
+   - Preguntas personales → "Soy el asistente de Camaral, solo puedo ayudarte con información sobre nuestros avatares IA."
+   - Temas políticos, religiosos, controversiales → "Mi especialidad es Camaral. ¿Puedo contarte sobre nuestros planes?"
+   - Código, matemáticas, tareas → "No puedo ayudar con eso, pero sí puedo explicarte cómo Camaral puede ayudar a tu negocio."
+   - Otros productos/empresas → "Solo tengo información sobre Camaral."
+   - Chistes, juegos → "¡Me encantaría ayudarte! Pero mi especialidad es Camaral."
 
 3. **NUNCA**:
    - Inventes información que no esté en el contexto
    - Hables de competidores en detalle
-   - Des consejos médicos, legales o financieros no relacionados
+   - Des consejos médicos, legales o financieros
    - Generes contenido inapropiado
-   - Actúes como otro personaje o bot
+   - Actúes como otro personaje
 
-4. **SIEMPRE** redirige hacia:
-   - Agendar una demo (calendly.com/emmsarias13/30min)
-   - Conocer más sobre Camaral
-   - Los beneficios de los avatares IA
+4. **SIEMPRE** redirige hacia agendar una demo: ${EXTERNAL_LINKS.CALENDLY}
 
 ## DIRECTRICES DE RESPUESTA
 - Responde en español, de forma natural y conversacional
 - Sé conciso (máximo 3-4 párrafos)
-- Usa emojis ocasionalmente para ser amigable
-- Si la pregunta es sobre Camaral pero no tienes info suficiente, sugiere agendar una demo
-- Siempre termina invitando a agendar demo o hacer otra pregunta sobre Camaral
+- Usa emojis ocasionalmente
+- Siempre invita a agendar demo o hacer otra pregunta sobre Camaral
 
-## INFORMACIÓN CLAVE DE CAMARAL
-- Fundada en 2025 en Bogotá, Colombia
-- CEO: Samuel Santa
+## INFORMACIÓN CLAVE
+- Fundada en ${COMPANY_INFO.FOUNDED} en ${COMPANY_INFO.LOCATION}
+- CEO: ${COMPANY_INFO.CEO}
 - Avatares IA para reuniones en Zoom, Teams, Meet
 - Disponible 24/7
-- Planes: Pro ($99/mes), Scale ($299/mes), Growth ($799/mes), Enterprise (personalizado)
-- Demo: calendly.com/emmsarias13/30min`;
+- Planes: Pro ($99/mes), Scale ($299/mes), Growth ($799/mes), Enterprise
+- Demo: ${EXTERNAL_LINKS.CALENDLY}`;
 
+/**
+ * Respuesta estándar para preguntas fuera de tema
+ */
 const OFF_TOPIC_RESPONSE = `¡Hola! 👋 Soy el asistente de Camaral y mi especialidad es ayudarte con información sobre nuestros avatares de IA para reuniones.
 
 ¿Te gustaría saber cómo Camaral puede ayudar a tu negocio? Por ejemplo:
@@ -57,68 +66,84 @@ const OFF_TOPIC_RESPONSE = `¡Hola! 👋 Soy el asistente de Camaral y mi especi
 
 ¿En qué puedo ayudarte sobre Camaral?`;
 
-function isOffTopic(message: string, relevantChunks: { score: number }[]): boolean {
+/**
+ * Patrones que indican preguntas fuera de tema
+ */
+const OFF_TOPIC_PATTERNS: RegExp[] = [
+  /^(hola|hey|hi|hello|buenos días|buenas tardes|buenas noches)$/i,
+  /cuéntame (un chiste|algo gracioso|una historia)/i,
+  /quién (eres|te creó|te hizo)/i,
+  /(escribe|genera|crea).*(código|programa|script)/i,
+  /(resuelve|calcula|ayuda con).*(matemáticas|ecuación|problema)/i,
+  /(qué opinas|qué piensas).*(política|religión|gobierno)/i,
+  /(recomienda|sugiere).*(película|libro|música|restaurante)/i,
+  /^(gracias|ok|vale|entendido|perfecto)$/i,
+];
+
+/**
+ * Keywords relacionados con Camaral
+ */
+const CAMARAL_KEYWORDS = [
+  "camaral", "avatar", "reunión", "reuniones", "ventas", "soporte",
+  "precio", "plan", "demo", "bot", "ia", "inteligencia artificial",
+  "zoom", "teams", "meet", "videollamada", "automatizar"
+];
+
+/**
+ * Determina si un mensaje está fuera de tema
+ */
+function isOffTopic(message: string, relevantChunks: SearchResult[]): boolean {
   const lowerMessage = message.toLowerCase();
 
-  // Check if relevance scores are too low (no good matches in our knowledge base)
-  const avgScore = relevantChunks.reduce((sum, c) => sum + c.score, 0) / relevantChunks.length;
-
-  // Off-topic patterns
-  const offTopicPatterns = [
-    /^(hola|hey|hi|hello|buenos días|buenas tardes|buenas noches)$/i,
-    /cuéntame (un chiste|algo gracioso|una historia)/i,
-    /quién (eres|te creó|te hizo)/i,
-    /(escribe|genera|crea).*(código|programa|script)/i,
-    /(resuelve|calcula|ayuda con).*(matemáticas|ecuación|problema)/i,
-    /(qué opinas|qué piensas).*(política|religión|gobierno)/i,
-    /(recomienda|sugiere).*(película|libro|música|restaurante)/i,
-    /^(gracias|ok|vale|entendido|perfecto)$/i,
-  ];
-
-  // Check for greetings and small talk - these should get a redirect
-  for (const pattern of offTopicPatterns) {
+  // Verificar patrones off-topic
+  for (const pattern of OFF_TOPIC_PATTERNS) {
     if (pattern.test(lowerMessage)) {
       return true;
     }
   }
 
-  // If average relevance score is very low and message doesn't mention camaral/avatar keywords
-  const camaralKeywords = ['camaral', 'avatar', 'reunión', 'reuniones', 'ventas', 'soporte', 'precio', 'plan', 'demo', 'bot', 'ia', 'inteligencia artificial', 'zoom', 'teams', 'meet'];
-  const hasCamaralKeyword = camaralKeywords.some(kw => lowerMessage.includes(kw));
+  // Calcular score de relevancia promedio
+  const avgScore = relevantChunks.length > 0
+    ? relevantChunks.reduce((sum, c) => sum + c.score, 0) / relevantChunks.length
+    : 0;
 
-  if (avgScore < 0.3 && !hasCamaralKeyword) {
+  // Verificar si contiene keywords de Camaral
+  const hasCamaralKeyword = CAMARAL_KEYWORDS.some(kw => lowerMessage.includes(kw));
+
+  // Si el score es muy bajo y no hay keywords relevantes
+  if (avgScore < RAG_CONFIG.MIN_RELEVANCE_SCORE && !hasCamaralKeyword) {
     return true;
   }
 
   return false;
 }
 
+/**
+ * Genera una respuesta usando RAG y GPT-4o
+ */
 export async function generateResponse(
   userMessage: string,
-  conversationHistory: { role: "user" | "assistant"; content: string }[] = []
+  conversationHistory: ConversationHistory = []
 ): Promise<string> {
-  // Generate embedding for the user's question
+  // Generar embedding de la pregunta
   const queryEmbedding = await generateEmbedding(userMessage);
 
-  // Search for relevant context
-  const relevantChunks = await searchSimilar(queryEmbedding, 4);
+  // Buscar contexto relevante
+  const relevantChunks = await searchSimilar(queryEmbedding, RAG_CONFIG.TOP_K_RESULTS);
 
-  // Check if the question is off-topic
+  // Verificar si la pregunta está fuera de tema
   if (isOffTopic(userMessage, relevantChunks)) {
     return OFF_TOPIC_RESPONSE;
   }
 
-  // Build context from relevant chunks
+  // Construir contexto
   const context = relevantChunks
     .map((chunk) => `[${chunk.section}]\n${chunk.text}`)
     .join("\n\n---\n\n");
 
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: "system", content: SYSTEM_PROMPT },
-    {
-      role: "system",
-      content: `Contexto relevante de la documentación de Camaral:\n\n${context}`,
-    },
+    { role: "system", content: `Contexto relevante:\n\n${context}` },
     ...conversationHistory.map((msg) => ({
       role: msg.role as "user" | "assistant",
       content: msg.content,
@@ -127,15 +152,19 @@ export async function generateResponse(
   ];
 
   const response = await openai.chat.completions.create({
-    model: "gpt-4o",
+    model: AI_CONFIG.MODEL,
     messages,
-    temperature: 0.7,
-    max_tokens: 800,
+    temperature: AI_CONFIG.TEMPERATURE,
+    max_tokens: AI_CONFIG.MAX_TOKENS,
   });
 
-  return response.choices[0].message.content || "Lo siento, no pude generar una respuesta. ¿Puedo ayudarte con algo sobre Camaral?";
+  return response.choices[0].message.content
+    || "Lo siento, no pude generar una respuesta. ¿Puedo ayudarte con algo sobre Camaral?";
 }
 
+/**
+ * Genera una respuesta rápida sin RAG (para casos simples)
+ */
 export async function generateQuickResponse(prompt: string): Promise<string> {
   const response = await openai.chat.completions.create({
     model: "gpt-4o-mini",
@@ -143,7 +172,7 @@ export async function generateQuickResponse(prompt: string): Promise<string> {
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: prompt },
     ],
-    temperature: 0.7,
+    temperature: AI_CONFIG.TEMPERATURE,
     max_tokens: 500,
   });
 

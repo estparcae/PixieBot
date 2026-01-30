@@ -1,17 +1,15 @@
-export interface Chunk {
-  id: string;
-  text: string;
-  metadata: {
-    section: string;
-    index: number;
-    charStart: number;
-    charEnd: number;
-  };
-}
+/**
+ * Módulo de chunking para dividir documentos en segmentos procesables
+ */
 
-const CHUNK_SIZE = 1500; // ~375 tokens approx (4 chars per token)
-const CHUNK_OVERLAP = 200;
+import { RAG_CONFIG } from "../config";
+import type { Chunk, ChunkMetadata } from "../types";
 
+const { CHUNK_SIZE, CHUNK_OVERLAP } = RAG_CONFIG;
+
+/**
+ * Extrae el título de una sección del texto
+ */
 function extractSectionTitle(text: string): string {
   const lines = text.split("\n");
   for (const line of lines) {
@@ -23,10 +21,11 @@ function extractSectionTitle(text: string): string {
   return "General";
 }
 
+/**
+ * Divide un documento en chunks con overlap
+ */
 export function chunkDocument(text: string, docId: string = "camaral"): Chunk[] {
   const chunks: Chunk[] = [];
-
-  // Split by double newlines to preserve paragraph structure
   const paragraphs = text.split(/\n\n+/);
 
   let currentChunk = "";
@@ -38,7 +37,7 @@ export function chunkDocument(text: string, docId: string = "camaral"): Chunk[] 
     const trimmed = paragraph.trim();
     if (!trimmed) continue;
 
-    // Detect section headers (lines that look like titles)
+    // Detectar headers de sección
     if (
       trimmed.startsWith("¿") ||
       trimmed.endsWith("?") ||
@@ -47,22 +46,14 @@ export function chunkDocument(text: string, docId: string = "camaral"): Chunk[] 
       currentSection = trimmed.slice(0, 60);
     }
 
-    // If adding this paragraph exceeds chunk size, save current and start new
+    // Si excede el tamaño, guardar chunk actual y comenzar nuevo
     if (currentChunk.length + trimmed.length > CHUNK_SIZE && currentChunk.length > 0) {
       const charStart = charPosition - currentChunk.length;
-      chunks.push({
-        id: `${docId}-${chunkIndex}`,
-        text: currentChunk.trim(),
-        metadata: {
-          section: currentSection,
-          index: chunkIndex,
-          charStart,
-          charEnd: charPosition,
-        },
-      });
+
+      chunks.push(createChunk(docId, chunkIndex, currentChunk.trim(), currentSection, charStart, charPosition));
       chunkIndex++;
 
-      // Keep overlap from end of previous chunk
+      // Mantener overlap del chunk anterior
       const overlapText = currentChunk.slice(-CHUNK_OVERLAP);
       currentChunk = overlapText + "\n\n" + trimmed;
     } else {
@@ -72,23 +63,47 @@ export function chunkDocument(text: string, docId: string = "camaral"): Chunk[] 
     charPosition += trimmed.length + 2;
   }
 
-  // Don't forget the last chunk
+  // No olvidar el último chunk
   if (currentChunk.trim()) {
-    chunks.push({
-      id: `${docId}-${chunkIndex}`,
-      text: currentChunk.trim(),
-      metadata: {
-        section: currentSection,
-        index: chunkIndex,
-        charStart: charPosition - currentChunk.length,
-        charEnd: charPosition,
-      },
-    });
+    chunks.push(createChunk(
+      docId,
+      chunkIndex,
+      currentChunk.trim(),
+      currentSection,
+      charPosition - currentChunk.length,
+      charPosition
+    ));
   }
 
   return chunks;
 }
 
+/**
+ * Crea un objeto Chunk con metadata
+ */
+function createChunk(
+  docId: string,
+  index: number,
+  text: string,
+  section: string,
+  charStart: number,
+  charEnd: number
+): Chunk {
+  return {
+    id: `${docId}-${index}`,
+    text,
+    metadata: {
+      section,
+      index,
+      charStart,
+      charEnd,
+    },
+  };
+}
+
+/**
+ * Divide un documento por secciones semánticas
+ */
 export function chunkDocumentBySections(text: string, docId: string = "camaral"): Chunk[] {
   const sections = text.split(/(?=\n(?:¿|[A-Z][a-záéíóú]+\s))/);
   const chunks: Chunk[] = [];
@@ -100,7 +115,6 @@ export function chunkDocumentBySections(text: string, docId: string = "camaral")
 
     const sectionTitle = extractSectionTitle(section);
 
-    // If section is too long, split it further
     if (section.length > CHUNK_SIZE) {
       const subChunks = chunkDocument(section, `${docId}-s${i}`);
       for (const subChunk of subChunks) {
@@ -108,16 +122,7 @@ export function chunkDocumentBySections(text: string, docId: string = "camaral")
         chunks.push(subChunk);
       }
     } else {
-      chunks.push({
-        id: `${docId}-${i}`,
-        text: section,
-        metadata: {
-          section: sectionTitle,
-          index: i,
-          charStart: charPosition,
-          charEnd: charPosition + section.length,
-        },
-      });
+      chunks.push(createChunk(docId, i, section, sectionTitle, charPosition, charPosition + section.length));
     }
 
     charPosition += section.length;
@@ -125,3 +130,5 @@ export function chunkDocumentBySections(text: string, docId: string = "camaral")
 
   return chunks;
 }
+
+export type { Chunk, ChunkMetadata };
