@@ -71,7 +71,7 @@ Bot de Telegram inteligente que responde preguntas sobre Camaral utilizando RAG 
 
 | Categoría | Tecnología | Versión | Propósito |
 |-----------|------------|---------|-----------|
-| **Framework** | Next.js | 15.x | App Router, API Routes |
+| **Framework** | Next.js | 16.x | App Router, API Routes |
 | **Runtime** | React | 19.x | UI Components |
 | **Bot** | grammy | 1.31.x | Telegram Bot Framework |
 | **IA** | OpenAI | 4.77.x | GPT-4o, Whisper, Embeddings |

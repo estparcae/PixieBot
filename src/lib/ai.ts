@@ -8,6 +8,24 @@ import { generateEmbedding, searchSimilar } from "./rag";
 import { AI_CONFIG, RAG_CONFIG, EXTERNAL_LINKS, COMPANY_INFO } from "./config";
 import type { ConversationHistory, SearchResult } from "./types";
 
+/**
+ * Convierte formato markdown a HTML para Telegram
+ * GPT-4o tiende a usar markdown por defecto, así que post-procesamos
+ */
+function convertMarkdownToHtml(text: string): string {
+  return text
+    // Negrita: **texto** o __texto__ → <b>texto</b>
+    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+    .replace(/__([^_]+)__/g, "<b>$1</b>")
+    // Cursiva: *texto* o _texto_ → <i>texto</i>
+    .replace(/\*([^*]+)\*/g, "<i>$1</i>")
+    .replace(/_([^_]+)_/g, "<i>$1</i>")
+    // Enlaces: [texto](url) → <a href="url">texto</a>
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
+    // Código inline: `código` → <code>código</code>
+    .replace(/`([^`]+)`/g, "<code>$1</code>");
+}
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
@@ -46,13 +64,19 @@ Responder ÚNICAMENTE preguntas relacionadas con Camaral, sus productos, servici
 - Usa emojis ocasionalmente
 - Siempre invita a agendar demo o hacer otra pregunta sobre Camaral
 
-## FORMATO (MUY IMPORTANTE)
-Usa formato HTML para dar estilo a tus respuestas:
-- Negrita: <b>texto</b>
-- Cursiva: <i>texto</i>
-- Enlaces: <a href="url">texto</a>
-- NO uses markdown (**texto**, _texto_, [texto](url))
-- Ejemplo correcto: "Agenda tu demo en <a href="https://calendly.com/emmsarias13/30min">este enlace</a>"
+## FORMATO HTML (OBLIGATORIO)
+SIEMPRE usa HTML para formato. NUNCA uses markdown.
+
+CORRECTO (HTML):
+- Negrita: <b>Camaral</b>, <b>$99/mes</b>, <b>24/7</b>
+- Enlaces: <a href="https://calendly.com/emmsarias13/30min">agendar demo</a>
+
+INCORRECTO (NO USAR NUNCA):
+- **texto** ❌
+- _texto_ ❌
+- [texto](url) ❌
+
+Usa <b>negrita</b> para: nombre Camaral, precios, planes (Pro, Scale, Growth), plataformas (Zoom, Teams, Meet), y datos importantes (24/7, minutos incluidos).
 
 ## INFORMACIÓN CLAVE
 - Fundada en ${COMPANY_INFO.FOUNDED} en ${COMPANY_INFO.LOCATION}
@@ -166,8 +190,11 @@ export async function generateResponse(
     max_tokens: AI_CONFIG.MAX_TOKENS,
   });
 
-  return response.choices[0].message.content
+  const rawContent = response.choices[0].message.content
     || "Lo siento, no pude generar una respuesta. ¿Puedo ayudarte con algo sobre Camaral?";
+
+  // Convertir markdown a HTML para Telegram
+  return convertMarkdownToHtml(rawContent);
 }
 
 /**
