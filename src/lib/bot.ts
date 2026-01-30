@@ -227,7 +227,7 @@ export function createBot(token: string): Bot {
       addToHistory(userId, "user", question);
       addToHistory(userId, "assistant", response);
 
-      await ctx.reply(response, { reply_markup: createDemoCtaKeyboard() });
+      await ctx.reply(response, { parse_mode: "HTML", reply_markup: createDemoCtaKeyboard() });
     } catch (error) {
       console.error("Error generating response:", error);
       await ctx.reply(
@@ -260,7 +260,7 @@ export function createBot(token: string): Bot {
       addToHistory(userId, "user", transcription);
       addToHistory(userId, "assistant", response);
 
-      await ctx.reply(response, { reply_markup: createDemoCtaKeyboard() });
+      await ctx.reply(response, { parse_mode: "HTML", reply_markup: createDemoCtaKeyboard() });
     } catch (error) {
       console.error("Error processing voice:", error);
       await ctx.reply(
@@ -287,7 +287,7 @@ export function createBot(token: string): Bot {
       addToHistory(userId, "user", userMessage);
       addToHistory(userId, "assistant", response);
 
-      await ctx.reply(response, { reply_markup: createDemoCtaKeyboard() });
+      await ctx.reply(response, { parse_mode: "HTML", reply_markup: createDemoCtaKeyboard() });
     } catch (error) {
       console.error("Error generating response:", error);
       await ctx.reply(
