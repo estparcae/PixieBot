@@ -1,8 +1,16 @@
 import type { Metadata } from "next";
+import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Camaral Bot",
-  description: "Bot de Telegram con IA para Camaral",
+  title: "Camaral - Avatares de IA para reuniones",
+  description:
+    "Automatiza tus reuniones de ventas y soporte con avatares inteligentes que hablan, escuchan y responden como humanos. Disponibles 24/7.",
+  openGraph: {
+    title: "Camaral - Avatares de IA para reuniones",
+    description:
+      "Automatiza tus reuniones de ventas y soporte con avatares inteligentes.",
+    type: "website",
+  },
 };
 
 export default function RootLayout({
@@ -12,7 +20,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="es">
-      <body>{children}</body>
+      <body className="antialiased">{children}</body>
     </html>
   );
 }
