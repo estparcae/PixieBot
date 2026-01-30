@@ -254,9 +254,6 @@ export function createBot(token: string): Bot {
         return;
       }
 
-      await ctx.reply(`🎤 _"${transcription}"_`, { parse_mode: "Markdown" });
-      await ctx.replyWithChatAction("typing");
-
       const history = getHistory(userId);
       const response = await generateResponse(transcription, history);
 
